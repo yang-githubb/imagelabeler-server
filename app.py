@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from subprocess import Popen
 from pathlib import Path
@@ -10,6 +10,11 @@ import psutil
 import subprocess
 import os
 import signal
+from fastapi import UploadFile, File, Form, Query
+from shutil import move
+import tempfile
+import yaml
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -20,6 +25,7 @@ app = FastAPI()
 BASE_DIR = Path(__file__).parent
 RUNS_DIR = BASE_DIR / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
+DATASET_ROOT = BASE_DIR / "datasets"
 
 # ======================================================
 # TRAINING STATE (SINGLE ACTIVE RUN)
@@ -297,3 +303,125 @@ def stop_train():
         "status": "stopping",
         "runName": active_run
     }
+
+# ======================================================
+# DATASET - UPLOAD
+# ======================================================
+
+@app.post("/dataset/upload")
+async def dataset_upload(
+    station: str = Form(...),
+    process: str = Form(...),
+    image: UploadFile = File(...),
+    label: UploadFile = File(...),
+    thumb: UploadFile = File(...)
+):
+    images_dir = DATASET_ROOT / station / process / "images"
+    labels_dir = DATASET_ROOT / station / process / "labels"
+    thumbs_dir = DATASET_ROOT / station / process / "images" / "thumbs"
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    thumbs_dir.mkdir(parents=True, exist_ok=True) 
+
+    image_path = images_dir / image.filename
+    label_path = labels_dir / label.filename
+    thumb_path = thumbs_dir / thumb.filename  
+
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_img:
+        tmp_img.write(await image.read())
+        tmp_img_path = tmp_img.name
+
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_lbl:
+        tmp_lbl.write(await label.read())
+        tmp_lbl_path = tmp_lbl.name
+
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_th:
+        tmp_th.write(await thumb.read())
+        tmp_th_path = tmp_th.name             
+
+
+    move(tmp_img_path, image_path)
+    move(tmp_lbl_path, label_path)
+    move(tmp_th_path, thumb_path)
+
+    return {"status": "ok"}
+
+# ======================================================
+# DATASET - CLASSES
+# ======================================================
+
+@app.get("/dataset/classes")
+def get_dataset_classes(station: str, process: str):
+    dataset_yaml = (
+        BASE_DIR
+        / "datasets"
+        / station
+        / process
+        / "dataset.yaml"
+    )
+
+    if not dataset_yaml.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="dataset.yaml not found"
+        )
+
+    with open(dataset_yaml, "r") as f:
+        data = yaml.safe_load(f)
+
+    names = data.get("names")
+    if not isinstance(names, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid dataset.yaml format"
+        )
+
+    # Return class list in index order
+    return {
+        "classes": [
+            names[k] for k in sorted(names.keys())
+        ]
+    }
+
+# ======================================================
+# DATASET - UPLOAD
+# ======================================================
+
+@app.get("/datasets/images")
+def list_dataset_images(
+    station: str = Query(...),
+    process: str = Query(...),
+    page: int = Query(1, ge=1),
+    limit: int = Query(24, ge=1)
+):
+    images_dir = (
+        BASE_DIR
+        / "datasets"
+        / station
+        / process
+        / "images"
+    )
+
+    if not images_dir.exists():
+        return {"total": 0, "images": []}
+
+    files = sorted(
+        f.name for f in images_dir.iterdir()
+        if f.suffix.lower() in [".jpg", ".jpeg", ".png"]
+    )
+
+    total = len(files)
+    start = (page - 1) * limit
+    slice_ = files[start:start + limit]
+
+    return {
+        "total": total,
+        "images": slice_
+    }
+
+app.mount(
+    "/datasets",
+    StaticFiles(directory=DATASET_ROOT),
+    name="datasets"
+)
