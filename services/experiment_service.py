@@ -3,6 +3,7 @@ import json
 import csv
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from .train_service import active_run, train_process
 
 BASE_DIR = Path(__file__).parent.parent
 RUNS_DIR = BASE_DIR / "runs"
@@ -25,11 +26,29 @@ def list_experiments_service():
         with open(cfg_path, "r") as f:
             cfg = json.load(f)
 
-        status = (
-            "Completed" if weights_path.exists()
-            else "Stopped" if results_path.exists()
-            else "Failed"
-        )
+        epoch = 0
+        total_epochs = int(cfg.get("epochs", 0))
+
+        if results_path.exists():
+            with open(results_path, newline="") as f:
+                rows = list(csv.DictReader(f))
+
+            if rows:
+                last = rows[-1]
+                epoch = int(float(last["epoch"]))
+
+        # ----- STATUS LOGIC -----
+        if d.name == active_run:
+            status = "Running"
+
+        elif results_path.exists():
+            if epoch >= total_epochs:
+                status = "Completed"
+            else:
+                status = "Stopped"
+
+        else:
+            status = "Failed"
 
         experiments.append({
             "name": d.name,
@@ -40,6 +59,8 @@ def list_experiments_service():
             "epochs": cfg.get("epochs"),
             "imgsz": cfg.get("imgsz"),
             "startedAt": cfg.get("startedAt"),
+            "epoch": epoch,
+            "totalEpochs": total_epochs,
             "hasWeights": weights_path.exists(),
             "hasMetrics": results_path.exists()
         })
