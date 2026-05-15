@@ -4,13 +4,13 @@ from services.experiment_service import (
     download_weights_service
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/experiments", tags=["experiments"])
 
-@router.get("/experiments")
+@router.get("/")
 def list_experiments():
     return list_experiments_service()
 
 
-@router.get("/experiments/{run}/weights")
+@router.get("/{run}/weights")
 def download_experiment_weights(run: str):
     return download_weights_service(run)

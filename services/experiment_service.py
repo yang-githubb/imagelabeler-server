@@ -3,11 +3,8 @@ import json
 import csv
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
-from .train_service import active_run, train_process
-
-BASE_DIR = Path(__file__).parent.parent
-RUNS_DIR = BASE_DIR / "runs"
-
+from core import state
+from core.config import BASE_DIR, RUNS_DIR, CONFIG_FILE, RESULTS_FILE, WEIGHTS_DIR, BEST_WEIGHTS
 
 def list_experiments_service():
     experiments = []
@@ -16,9 +13,9 @@ def list_experiments_service():
         if not d.is_dir():
             continue
 
-        cfg_path = d / "run_config.json"
-        results_path = d / "results.csv"
-        weights_path = d / "weights" / "best.pt"
+        cfg_path = d / CONFIG_FILE
+        results_path = d / RESULTS_FILE
+        weights_path = d / WEIGHTS_DIR / BEST_WEIGHTS
 
         if not cfg_path.exists():
             continue
@@ -38,7 +35,7 @@ def list_experiments_service():
                 epoch = int(float(last["epoch"]))
 
         # ----- STATUS LOGIC -----
-        if d.name == active_run:
+        if d.name == state.active_run:
             status = "Running"
 
         elif results_path.exists():
@@ -69,7 +66,7 @@ def list_experiments_service():
 
 
 def download_weights_service(run):
-    path = RUNS_DIR / run / "weights" / "best.pt"
+    path = RUNS_DIR / run / WEIGHTS_DIR / BEST_WEIGHTS
 
     if not path.exists():
         raise HTTPException(404, "Weights not found")

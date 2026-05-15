@@ -5,9 +5,9 @@ from services.dataset_service import (
     list_dataset_images_service
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/datasets", tags=["dataset"])
 
-@router.post("/dataset/upload")
+@router.post("/upload")
 async def dataset_upload(
     station: str = Form(...),
     process: str = Form(...),
@@ -20,12 +20,12 @@ async def dataset_upload(
     )
 
 
-@router.get("/dataset/classes")
+@router.get("/classes")
 def get_dataset_classes(station: str, process: str):
     return get_classes_service(station, process)
 
 
-@router.get("/datasets/images")
+@router.get("/images")
 def list_dataset_images(
     station: str = Query(...),
     process: str = Query(...),

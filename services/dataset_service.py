@@ -1,12 +1,10 @@
+from multiprocessing import process
 from pathlib import Path
 from shutil import move
 import tempfile
 import yaml
 from fastapi import HTTPException
-
-BASE_DIR = Path(__file__).parent.parent
-DATASET_ROOT = BASE_DIR / "datasets"
-
+from core.config import BASE_DIR, DATASET_ROOT
 
 async def dataset_upload_service(station, process, image, label, thumb):
     images_dir = DATASET_ROOT / station / process / "images"
@@ -42,7 +40,7 @@ async def dataset_upload_service(station, process, image, label, thumb):
 
 def get_classes_service(station, process):
     dataset_yaml = (
-        BASE_DIR / "datasets" / station / process / "dataset.yaml"
+        DATASET_ROOT / station / process / "dataset.yaml"
     )
 
     if not dataset_yaml.exists():
@@ -57,7 +55,7 @@ def get_classes_service(station, process):
 
 def list_dataset_images_service(station, process, page, limit):
     images_dir = (
-        BASE_DIR / "datasets" / station / process / "images"
+        DATASET_ROOT / station / process / "images"
     )
 
     if not images_dir.exists():
