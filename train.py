@@ -3,14 +3,14 @@
 train.py
 ------------------------------------------------------
 Responsibility:
-- Train a YO using Ultralytics
-- Accept all configuration via CLI arguments
-- Write results under the given project/run directory
+- Execute YOLO training using Ultralytics
+- Accept configuration via CLI arguments
+- Save results to specified project/run directory
 
 Design rules:
-- Do NOT hardcode model paths
-- Do NOT assume filesystem layout
-- Let Node.js decide what to train
+- No hardcoded paths
+- No dependency on server structure
+- Fully controlled by external caller (API/service layer)
 ======================================================
 """
 
@@ -18,9 +18,26 @@ import argparse
 from ultralytics import YOLO
 
 
+# --------------------------------------------------
+# CLI argument parsing
+# --------------------------------------------------
 def parse_args():
-    """Parse CLI arguments passed from Node.js."""
-    parser = argparse.ArgumentParser("YOLO Training")
+    """
+    Parse CLI arguments passed from the service layer.
+
+    Arguments:
+    - data: path to dataset.yaml
+    - model: model name or .pt path
+    - epochs: number of training epochs
+    - imgsz: image size
+    - batch: batch size
+    - name: run name
+    - project: output directory
+
+    Returns:
+    - argparse.Namespace
+    """
+    parser = argparse.ArgumentParser(description="YOLO Training")
 
     parser.add_argument("--data", required=True, help="Path to dataset.yaml")
     parser.add_argument("--model", required=True, help="Model name or .pt path")
@@ -33,19 +50,28 @@ def parse_args():
     return parser.parse_args()
 
 
+# --------------------------------------------------
+# Main training execution
+# --------------------------------------------------
 def main():
+    """
+    Entry point for training execution.
+
+    Behavior:
+    - Loads YOLO model from given input
+    - Runs training with provided configuration
+    - Outputs results to project/run directory
+
+    Notes:
+    - Model path can be local or pretrained name
+    - Ultralytics resolves model loading automatically
+    """
     args = parse_args()
 
-    # --------------------------------------------------
-    # TRAIN
-    # --------------------------------------------------
-    # args.model can be:
-    #   - "yolo26n.pt"
-    #   - "yolov8n.pt"
-    #   - "/absolute/path/to/model.pt"
-    # Ultralytics resolves all correctly.
+    # Initialize model
     model = YOLO(args.model)
 
+    # Execute training
     model.train(
         data=args.data,
         epochs=args.epochs,
@@ -58,5 +84,8 @@ def main():
     )
 
 
+# --------------------------------------------------
+# Script entry point
+# --------------------------------------------------
 if __name__ == "__main__":
     main()

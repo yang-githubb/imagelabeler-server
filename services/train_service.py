@@ -5,39 +5,84 @@ import threading
 import os
 import signal
 import csv
-from core.config import BASE_DIR, RUNS_DIR, CONFIG_FILE, RESULTS_FILE 
+from datetime import datetime
+
+from core.config import BASE_DIR, RUNS_DIR, CONFIG_FILE, RESULTS_FILE
 from core import state
 
+"""
+======================================================
+services/train_service.py
+------------------------------------------------------
+Responsibility:
+- Manage training lifecycle (start / monitor / stop)
+- Launch training as a subprocess
+- Track active training state
+- Provide training progress and metrics
+
+Design rules:
+- No HTTP logic
+- No model logic (handled by train.py)
+- Single active training process at a time
+- Stateless except for runtime state in core.state
+======================================================
+"""
+
+# Ensure runs directory exists
 RUNS_DIR.mkdir(exist_ok=True)
 
+
+# --------------------------------------------------
+# Start training
+# --------------------------------------------------
 def start_train_service(cfg):
+    """
+    Start a new YOLO training process.
+
+    Inputs:
+    - cfg: TrainConfig object
+
+    Behavior:
+    - Prevents concurrent training
+    - Creates run directory
+    - Saves training configuration
+    - Launches subprocess (train.py)
+    - Updates runtime state
+
+    Returns:
+    - status and run name
+    """
+
+    # Prevent multiple concurrent trainings
     if state.train_process is not None:
         raise Exception("Training already running")
 
     run_dir = RUNS_DIR / cfg.runName
+
+    # Prevent overwriting existing runs
     if run_dir.exists():
         raise Exception("Run already exists")
 
     run_dir.mkdir(parents=True)
 
+    # Save training config
     with open(run_dir / CONFIG_FILE, "w") as f:
         json.dump(
             {
                 **cfg.dict(),
-                "startedAt": __import__("datetime")
-                    .datetime.utcnow()
-                    .isoformat() + "Z"
+                "startedAt": datetime.utcnow().isoformat() + "Z"
             },
             f,
             indent=2
         )
 
+    # Launch training process
     state.train_process = subprocess.Popen(
         [
             sys.executable,
             str(BASE_DIR / "train.py"),
             "--data", str(
-                (BASE_DIR / "datasets" / cfg.station / cfg.process / "dataset.yaml")
+                BASE_DIR / "datasets" / cfg.station / cfg.process / "dataset.yaml"
             ),
             "--model", cfg.model,
             "--epochs", str(cfg.epochs),
@@ -49,8 +94,10 @@ def start_train_service(cfg):
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
     )
 
+    # Track active run
     state.active_run = cfg.runName
 
+    # Reset state when process exits
     def _on_exit():
         state.train_process = None
         state.active_run = None
@@ -63,7 +110,20 @@ def start_train_service(cfg):
     return {"status": "started", "runName": cfg.runName}
 
 
+# --------------------------------------------------
+# Training progress
+# --------------------------------------------------
 def train_progress_service():
+    """
+    Get current training progress.
+
+    Returns:
+    - status: idle / starting / running
+    - runName
+    - epoch / totalEpochs
+    - progress percentage
+    """
+
     if state.active_run is None:
         return {"status": "idle"}
 
@@ -71,14 +131,17 @@ def train_progress_service():
     csv_path = run_dir / RESULTS_FILE
     cfg_path = run_dir / CONFIG_FILE
 
+    # Training has started but no metrics yet
     if not csv_path.exists() or not cfg_path.exists():
         return {"status": "starting", "runName": state.active_run}
 
+    # Load config
     with open(cfg_path, "r") as f:
         cfg = json.load(f)
 
     total_epochs = int(cfg["epochs"])
 
+    # Read results
     with open(csv_path, newline="") as f:
         rows = list(csv.DictReader(f))
 
@@ -87,6 +150,7 @@ def train_progress_service():
 
     last = rows[-1]
     epoch = int(float(last["epoch"]))
+
     progress = min(100, round((epoch / total_epochs) * 100))
 
     return {
@@ -98,7 +162,21 @@ def train_progress_service():
     }
 
 
+# --------------------------------------------------
+# Training metrics
+# --------------------------------------------------
 def train_metrics_service(run=None):
+    """
+    Retrieve training metrics for a run.
+
+    Inputs:
+    - run (optional): run name
+      → defaults to active run
+
+    Returns:
+    - list of metrics per epoch
+    """
+
     run_name = run or state.active_run
 
     if run_name is None:
@@ -127,7 +205,17 @@ def train_metrics_service(run=None):
     return metrics
 
 
+# --------------------------------------------------
+# Stop training
+# --------------------------------------------------
 def stop_train_service():
+    """
+    Stop the currently running training process.
+
+    Returns:
+    - status and run name
+    """
+
     if state.train_process is None:
         return {"status": "idle"}
 
