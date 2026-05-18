@@ -7,6 +7,7 @@ import signal
 import csv
 from datetime import datetime
 
+from services.dataset_service import split_dataset
 from core.config import BASE_DIR, RUNS_DIR, CONFIG_FILE, RESULTS_FILE
 from core import state
 
@@ -58,6 +59,8 @@ def start_train_service(cfg):
         raise Exception("Training already running")
 
     run_dir = RUNS_DIR / cfg.runName
+
+    split_dataset(cfg.station, cfg.process)
 
     # Prevent overwriting existing runs
     if run_dir.exists():

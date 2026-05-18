@@ -3,6 +3,8 @@ import tempfile
 import yaml
 from fastapi import HTTPException
 from core.config import DATASET_ROOT
+import random
+import shutil
 
 """
 ======================================================
@@ -152,3 +154,100 @@ def list_dataset_images_service(station, process, page, limit):
         "total": total,
         "images": page_items
     }
+
+# --------------------------------------------------
+# Split dataset into test/val
+# --------------------------------------------------
+import random
+import shutil
+from pathlib import Path
+
+def split_dataset(station, process, val_ratio=0.2):
+    """
+    Ensure dataset is split into train / validation with stable ratio.
+
+    Behavior:
+    - First run: create initial validation split
+    - Subsequent runs: adjust only if ratio is off
+    - Never reshuffles already selected validation data
+    """
+
+    base = DATASET_ROOT / station / process
+
+    images_dir = base / "images"
+    labels_dir = base / "labels"
+
+    val_img_dir = base / "validation" / "images"
+    val_lbl_dir = base / "validation" / "labels"
+
+    # Ensure validation folders exist
+    val_img_dir.mkdir(parents=True, exist_ok=True)
+    val_lbl_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect files
+    train_files = [
+        f for f in images_dir.iterdir()
+        if f.suffix.lower() in [".jpg", ".jpeg", ".png"]
+    ]
+
+    val_files = [
+        f for f in val_img_dir.iterdir()
+        if f.suffix.lower() in [".jpg", ".jpeg", ".png"]
+    ]
+
+    train_count = len(train_files)
+    val_count = len(val_files)
+    total_count = train_count + val_count
+
+    # -------------------------------
+    # Logging: current dataset state
+    # -------------------------------
+    print(
+        f"[DATASET SPLIT] {station}/{process} | "
+        f"Total={total_count}, Train={train_count}, Val={val_count}"
+    )
+
+    # Skip very small datasets
+    if total_count < 5:
+        print("[DATASET SPLIT] Skipped: dataset too small")
+        return
+
+    # Compute desired validation size
+    target_val_count = max(1, int(total_count * val_ratio))
+    needed = target_val_count - val_count
+
+    print(
+        f"[DATASET SPLIT] Target Val={target_val_count} "
+        f"({int(val_ratio * 100)}%), Needed={needed}"
+    )
+
+    # Already balanced
+    if needed <= 0:
+        print("[DATASET SPLIT] No action needed (already balanced)")
+        return
+
+    # Shuffle only training candidates
+    random.shuffle(train_files)
+
+    # Move required number of images
+    moved = 0
+
+    for img_path in train_files[:needed]:
+        label_path = labels_dir / f"{img_path.stem}.txt"
+
+        # Move image
+        shutil.move(str(img_path), val_img_dir / img_path.name)
+
+        # Move label if exists
+        if label_path.exists():
+            shutil.move(
+                str(label_path),
+                val_lbl_dir / label_path.name
+            )
+
+        moved += 1
+
+    print(
+        f"[DATASET SPLIT] Moved {moved} image(s) to validation | "
+        f"New Train={train_count - moved}, New Val={val_count + moved}"
+    )
